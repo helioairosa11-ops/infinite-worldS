@@ -141,6 +141,20 @@ func _apply_graphics_settings() -> void:
 		var rd := float(Settings.render_distance * B.CHUNK)
 		world_env.environment.fog_density = clampf(0.032 / maxf(32.0, rd), 0.0015, 0.012)
 
+func build_menu_panorama() -> void:
+	clear_world()
+	current_dimension = 0
+	world_time = 0.34
+	weather = "clear"
+	gen = WorldGen.new(202611, 0)
+	for dx in range(-2, 3):
+		for dz in range(-2, 3):
+			_ensure_chunk_sync(dx, dz)
+	for dx in range(-2, 3):
+		for dz in range(-2, 3):
+			_mesh_chunk_sync(chunks[Vector2i(dx, dz)])
+	_update_day_night_and_weather(0.01)
+
 func start_world(meta: Dictionary) -> void:
 	clear_world()
 	world_id = meta.get("id", "")
@@ -179,6 +193,14 @@ func start_world(meta: Dictionary) -> void:
 		local_player.global_position = find_safe_spawn()
 		local_player.fall_peak_y = local_player.global_position.y
 		local_player.give_starter_kit()
+
+func _exit_tree() -> void:
+	for tid in _gen_tasks.values():
+		WorkerThreadPool.wait_for_task_completion(tid)
+	_gen_tasks.clear()
+	for entry in _mesh_tasks.values():
+		WorkerThreadPool.wait_for_task_completion(entry["task"])
+	_mesh_tasks.clear()
 
 func clear_world() -> void:
 	for tid in _gen_tasks.values():
@@ -302,23 +324,20 @@ func _attach_chunk_nodes(c: VoxelChunk) -> void:
 	chunks_root.add_child(c.liquid_node)
 
 func _mesh_chunk_sync(c: VoxelChunk) -> void:
-	var nb := _neighbor_block_arrays(c.cx, c.cz)
-	var data := c.build_mesh_data(nb, gen)
-	c.apply_mesh_data(data, solid_material, liquid_material)
-	c.dirty = false
-
-func _neighbor_block_arrays(cx: int, cz: int) -> Array:
 	var empty := PackedByteArray()
-	var c_px: VoxelChunk = chunks.get(Vector2i(cx + 1, cz))
-	var c_nx: VoxelChunk = chunks.get(Vector2i(cx - 1, cz))
-	var c_pz: VoxelChunk = chunks.get(Vector2i(cx, cz + 1))
-	var c_nz: VoxelChunk = chunks.get(Vector2i(cx, cz - 1))
-	return [
+	var c_px: VoxelChunk = chunks.get(Vector2i(c.cx + 1, c.cz))
+	var c_nx: VoxelChunk = chunks.get(Vector2i(c.cx - 1, c.cz))
+	var c_pz: VoxelChunk = chunks.get(Vector2i(c.cx, c.cz + 1))
+	var c_nz: VoxelChunk = chunks.get(Vector2i(c.cx, c.cz - 1))
+	c.build_mesh_data(
 		c_px.blocks if c_px != null else empty,
 		c_nx.blocks if c_nx != null else empty,
 		c_pz.blocks if c_pz != null else empty,
 		c_nz.blocks if c_nz != null else empty,
-	]
+		gen
+	)
+	c.apply_mesh_data(solid_material, liquid_material)
+	c.dirty = false
 
 func _process(delta: float) -> void:
 	if local_player == null:
@@ -388,20 +407,21 @@ func _update_day_night_and_weather(delta: float) -> void:
 		world_env.environment.fog_light_color = hor_c
 
 	# Clouds & Rain animation
+	var ref_pos := local_player.global_position if local_player != null else Vector3.ZERO
 	if clouds_root.visible:
 		_cloud_offset = fmod(_cloud_offset + delta * 1.4, 320.0)
-		clouds_root.position.x = local_player.global_position.x - 160.0 + _cloud_offset
-		clouds_root.position.z = local_player.global_position.z
+		clouds_root.position.x = ref_pos.x - 160.0 + _cloud_offset
+		clouds_root.position.z = ref_pos.z
 
 	var raining := (weather in ["rain", "storm"]) and current_dimension == 0
 	rain_mesh.visible = raining
 	Sfx.set_rain_intensity(1.0 if weather == "storm" else (0.6 if weather == "rain" else 0.0))
 	solid_material.set_shader_parameter("wind_strength", 2.2 if weather == "storm" else (1.4 if weather == "rain" else 1.0))
 	if raining:
-		rain_mesh.global_position = local_player.global_position + Vector3(0, -Mathf_fmod(Time.get_ticks_msec() * 0.014, 4.0), 0)
+		rain_mesh.global_position = ref_pos + Vector3(0, -Mathf_fmod(Time.get_ticks_msec() * 0.014, 4.0), 0)
 		if weather == "storm" and _rng.randf() < delta * 0.08:
 			sun_light.light_energy = 3.2
-			Sfx.play_3d("explosion", local_player.global_position + Vector3(_rng.randf_range(-30, 30), 25, _rng.randf_range(-30, 30)), -2.0)
+			Sfx.play_3d("explosion", ref_pos + Vector3(_rng.randf_range(-30, 30), 25, _rng.randf_range(-30, 30)), -2.0)
 
 func Mathf_fmod(a: float, b: float) -> float:
 	return a - floor(a / b) * b
@@ -433,7 +453,7 @@ func _stream_chunks() -> void:
 			var c: VoxelChunk = entry["chunk"]
 			c.meshing = false
 			if chunks.has(key):
-				c.apply_mesh_data(entry["result"], solid_material, liquid_material)
+				c.apply_mesh_data(solid_material, liquid_material)
 			_mesh_tasks.erase(key)
 			applied += 1
 			if applied >= 3:
@@ -455,9 +475,9 @@ func _stream_chunks() -> void:
 			if uc.liquid_node != null: uc.liquid_node.queue_free()
 			chunks.erase(key)
 
-	# 4. Queue missing chunks & dirty chunk remeshing in radial order
-	var max_gen_queue := 4
-	var max_mesh_queue := 4
+	# 4. Queue missing chunks & dirty chunk remeshing in radial order (1 task per category for lock-free thread safety)
+	var max_gen_queue := 1
+	var max_mesh_queue := 1
 	for r in range(0, rd + 1):
 		for dx in range(-r, r + 1):
 			for dz in range(-r, r + 1):
@@ -485,11 +505,23 @@ func _stream_chunks() -> void:
 					if c.dirty and not c.meshing and not _gen_tasks.has(key) and _mesh_tasks.size() < max_mesh_queue:
 						c.dirty = false
 						c.meshing = true
-						var nb := _neighbor_block_arrays(cx, cz)
+						var empty := PackedByteArray()
+						var k_px := Vector2i(cx + 1, cz)
+						var k_nx := Vector2i(cx - 1, cz)
+						var k_pz := Vector2i(cx, cz + 1)
+						var k_nz := Vector2i(cx, cz - 1)
+						var c_px: VoxelChunk = chunks.get(k_px)
+						var c_nx: VoxelChunk = chunks.get(k_nx)
+						var c_pz: VoxelChunk = chunks.get(k_pz)
+						var c_nz: VoxelChunk = chunks.get(k_nz)
+						var nb_px := c_px.blocks.duplicate() if (c_px != null and not _gen_tasks.has(k_px)) else empty
+						var nb_nx := c_nx.blocks.duplicate() if (c_nx != null and not _gen_tasks.has(k_nx)) else empty
+						var nb_pz := c_pz.blocks.duplicate() if (c_pz != null and not _gen_tasks.has(k_pz)) else empty
+						var nb_nz := c_nz.blocks.duplicate() if (c_nz != null and not _gen_tasks.has(k_nz)) else empty
 						var g2 := gen
-						var res_holder := {"chunk": c, "result": {}}
+						var res_holder := {"chunk": c}
 						res_holder["task"] = WorkerThreadPool.add_task(func() -> void:
-							res_holder["result"] = c.build_mesh_data(nb, g2)
+							c.build_mesh_data(nb_px, nb_nx, nb_pz, nb_nz, g2)
 						)
 						_mesh_tasks[key] = res_holder
 
@@ -685,6 +717,8 @@ func try_place_block(pp: Vector3i, clicked_pos: Vector3i, normal: Vector3i, id: 
 	set_block(pp.x, pp.y, pp.z, id, meta_val)
 	if id == B.DOOR_LOWER:
 		set_block(pp.x, pp.y + 1, pp.z, B.DOOR_UPPER, meta_val)
+	elif id == B.POWER_CORE:
+		propagate_energy(pp)
 
 	Sfx.play_block(id, Vector3(pp) + Vector3(0.5, 0.5, 0.5), "place")
 	return true
@@ -699,6 +733,49 @@ func toggle_door(bp: Vector3i) -> void:
 	elif id == B.DOOR_UPPER and get_block(bp.x, bp.y - 1, bp.z) == B.DOOR_LOWER:
 		set_block(bp.x, bp.y - 1, bp.z, B.DOOR_LOWER, nm)
 	Sfx.play_block(B.OAK_PLANKS, Vector3(bp), "place")
+
+func toggle_lever(bp: Vector3i) -> void:
+	var m := get_meta_val(bp.x, bp.y, bp.z)
+	var nm := m ^ 4
+	set_block(bp.x, bp.y, bp.z, B.LEVER, nm)
+	Sfx.play_ui("click", 1.2 if (nm & 4) != 0 else 0.85)
+	if (nm & 4) != 0:
+		propagate_energy(bp)
+
+func propagate_energy(source: Vector3i) -> void:
+	var visited := {source: true}
+	var queue: Array[Vector3i] = [source]
+	var head := 0
+	while head < queue.size() and head < 32:
+		var cur := queue[head]
+		head += 1
+		for n in Registry.FACE_NORMALS:
+			var np: Vector3i = cur + n
+			if visited.has(np):
+				continue
+			visited[np] = true
+			var bid := get_block(np.x, np.y, np.z)
+			if bid == B.ENERGY_CONDUIT or bid == B.POWER_CORE:
+				queue.append(np)
+			elif bid in [B.DOOR_LOWER, B.DOOR_UPPER]:
+				toggle_door(np)
+			elif bid == B.PISTON:
+				_activate_piston(np)
+			elif bid == B.EXPLOSIVE_BARREL:
+				set_block(np.x, np.y, np.z, B.AIR)
+				explode(Vector3(np) + Vector3(0.5, 0.5, 0.5), 4.0, 18.0)
+
+func _activate_piston(ppos: Vector3i) -> void:
+	var m := get_meta_val(ppos.x, ppos.y, ppos.z) & 3
+	var dir: Vector3i = Registry.FACING_DIRS[m]
+	var front := ppos + dir
+	var target_pos := front + dir
+	var fid := get_block(front.x, front.y, front.z)
+	if fid != B.AIR and fid != B.BEDROCK and fid != B.OBSIDIAN and get_block(target_pos.x, target_pos.y, target_pos.z) == B.AIR:
+		var fmeta := get_meta_val(front.x, front.y, front.z)
+		set_block(front.x, front.y, front.z, B.AIR)
+		set_block(target_pos.x, target_pos.y, target_pos.z, fid, fmeta)
+		Sfx.play_block(B.STONE, Vector3(ppos), "place")
 
 func has_obsidian_frame(bp: Vector3i) -> bool:
 	var obs_count := 0

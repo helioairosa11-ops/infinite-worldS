@@ -29,17 +29,21 @@ func _ready() -> void:
 	ui.quit_to_title.connect(_on_quit_to_title)
 	Net.remote_world_ready.connect(_on_remote_world_ready)
 
-	# Check if launched with --self-test for automated verification
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--self-test":
 			_run_self_test()
 			return
+		elif arg == "--render-preview":
+			_run_render_preview()
+			return
+
+	world.build_menu_panorama()
 
 func _process(delta: float) -> void:
 	if not ui.in_game:
-		menu_angle += delta * 0.15
-		menu_cam.position = Vector3(cos(menu_angle) * 24.0, 78.0, sin(menu_angle) * 24.0)
-		menu_cam.look_at(Vector3(0, 68, 0), Vector3.UP)
+		menu_angle += delta * 0.18
+		menu_cam.position = Vector3(cos(menu_angle) * 20.0, 74.0, sin(menu_angle) * 20.0)
+		menu_cam.look_at(Vector3(0, 62, 0), Vector3.UP)
 		return
 
 	autosave_timer -= delta
@@ -78,13 +82,36 @@ func _on_quit_to_title() -> void:
 	world.save_all()
 	Net.close_network()
 	world.clear_world()
+	world.build_menu_panorama()
 	menu_cam.current = true
 	ui.show_main_menu()
+
+func _run_render_preview() -> void:
+	world.build_menu_panorama()
+	menu_cam.position = Vector3(18.0, 74.0, 18.0)
+	menu_cam.look_at(Vector3(0, 62, 0), Vector3.UP)
+	for _i in 6:
+		await get_tree().process_frame
+	var img_menu := get_viewport().get_texture().get_image()
+	img_menu.save_png("C:/Users/helio/.gemini/antigravity/brain/f73e3533-1ceb-4b7f-83d1-0ef1d3bd0ed3/preview_menu.png")
+
+	var meta := WorldSave.create_world("PreviewWorld", 202611, 0)
+	_on_start_singleplayer(meta)
+	world.spawn_mob("cow", world.local_player.global_position + Vector3(3, 1, -4))
+	world.spawn_mob("sheep", world.local_player.global_position + Vector3(-2, 1, -5))
+	for _i in 10:
+		await get_tree().process_frame
+	var img_game := get_viewport().get_texture().get_image()
+	img_game.save_png("C:/Users/helio/.gemini/antigravity/brain/f73e3533-1ceb-4b7f-83d1-0ef1d3bd0ed3/preview_gameplay.png")
+	world.clear_world()
+	WorldSave.delete_world(meta["id"])
+	await get_tree().process_frame
+	get_tree().quit(0)
 
 func _run_self_test() -> void:
 	print("=== INFINITE WORLDS: RUNNING FULL SYSTEM SELF-TEST ===")
 	# 1. Verify Registry (blocks, items, textures, recipes)
-	assert(B.COUNT == 84, "Expected 84 block definitions")
+	assert(B.COUNT == 89, "Expected 89 block definitions")
 	assert(Registry.layer_images.size() > 60, "Procedural textures generated")
 	assert(Registry.recipes.size() > 50, "Crafting recipes loaded")
 
@@ -154,7 +181,7 @@ func _run_self_test() -> void:
 	world.start_world(WorldSave.load_meta(saved_id))
 	assert(world.get_block(sp.x, sp.y + 1, sp.z) == B.DIAMOND_BLOCK, "Saved chunk block persisted across reload")
 
-	# 10. Test Farming, Wolf Taming, Explosions & UI Quick-Craft
+	# 10. Test Farming, Wolf Taming, Mechanisms (Lever + Conduit + Piston) & Explosions
 	world.set_block(sp.x + 2, sp.y - 1, sp.z, B.FARMLAND)
 	world.set_block(sp.x + 2, sp.y, sp.z, B.WHEAT, 0)
 	var wolf := world.spawn_mob("wolf", world.local_player.global_position + Vector3(2, 0, 2))
@@ -162,6 +189,15 @@ func _run_self_test() -> void:
 	for _i in 10:
 		if not wolf.tamed:
 			wolf.interact(world.local_player, Registry.id_of("bone"))
+	# Mechanism test: Lever -> Energy Conduit -> Piston pushes Cobblestone
+	var mp := Vector3i(sp.x - 3, sp.y, sp.z)
+	world.set_block(mp.x, mp.y, mp.z, B.LEVER, 0)
+	world.set_block(mp.x + 1, mp.y, mp.z, B.ENERGY_CONDUIT, 0)
+	world.set_block(mp.x + 2, mp.y, mp.z, B.PISTON, 0) # facing 0 = +Z
+	world.set_block(mp.x + 2, mp.y, mp.z + 1, B.COBBLE, 0)
+	world.set_block(mp.x + 2, mp.y, mp.z + 2, B.AIR, 0)
+	world.toggle_lever(mp)
+	assert(world.get_block(mp.x + 2, mp.y, mp.z + 2) == B.COBBLE, "Luminite energy mechanism pushed block via Piston")
 	world.explode(Vector3(sp.x + 6, sp.y, sp.z), 2.5, 10.0)
 
 	world.clear_world()

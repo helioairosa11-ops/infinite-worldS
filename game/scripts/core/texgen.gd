@@ -355,6 +355,52 @@ static func generate(name: String) -> Image:
 		"glowmoss":
 			fill_noise(img, ["#1d4a3a", "#256048", "#2f7a56", "#3fa070"], s, 1.2)
 			_specks(img, s, Color("#9fffcf"), 9)
+		"power_core":
+			_metal_block(img, s, ["#2b2d38", "#383b4a", "#484c5e", "#5c6278"])
+			for y in range(4, 12):
+				for x in range(4, 12):
+					var d := absf(x - 7.5) + absf(y - 7.5)
+					if d < 5.5:
+						img.set_pixel(x, y, Color("#00e5ff").lerp(Color("#d8ffff"), 1.0 - d / 5.5))
+		"energy_conduit":
+			_clear(img)
+			for y in range(6, 10):
+				for x in S:
+					img.set_pixel(x, y, Color("#2a3242") if (y == 6 or y == 9) else Color("#00e5ff").lightened(h(x, y, s) * 0.35))
+			for x in range(6, 10):
+				for y in S:
+					img.set_pixel(x, y, Color("#2a3242") if (x == 6 or x == 9) else Color("#00e5ff").lightened(h(x, y, s) * 0.35))
+		"lever":
+			_clear(img)
+			for y in range(11, 16):
+				for x in range(5, 11):
+					img.set_pixel(x, y, pal(STONE, h(x, y, s)))
+			for y in range(4, 12):
+				img.set_pixel(7, y, Color("#6b4f2e")); img.set_pixel(8, y, Color("#8f6c41"))
+			for y in range(2, 5):
+				for x in range(6, 10):
+					img.set_pixel(x, y, Color("#00e5ff"))
+		"piston_top":
+			_planks(img, s, OAKW)
+			_frame(img, Color("#4a3420"), Color("#c4c7cc"))
+			for y in range(6, 10):
+				for x in range(6, 10):
+					img.set_pixel(x, y, Color("#9a9da2"))
+		"piston_side":
+			_cells(img, STONE, s, 7, Color("#46484c"))
+			for y in range(0, 4):
+				for x in S:
+					img.set_pixel(x, y, pal(OAKW, h(x, y, s)))
+			for x in S:
+				img.set_pixel(x, 4, Color("#c4c7cc"))
+		"explosive_barrel":
+			_planks(img, s, ["#8a241b", "#a82e22", "#c43b2b", "#d94e3b"])
+			for y in [2, 3, 12, 13]:
+				for x in S:
+					img.set_pixel(x, y, Color("#282a30"))
+			for y in range(6, 10):
+				for x in range(2, 14):
+					img.set_pixel(x, y, Color("#eae6dc") if (x + y) % 2 == 0 else Color("#d22b2b"))
 		"fire":
 			_clear(img)
 			for x in S:

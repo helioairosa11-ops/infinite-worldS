@@ -101,16 +101,16 @@ func biome_at(wx: int, wz: int) -> int:
 
 func biome_tint(biome: int) -> Color:
 	match biome:
-		BIOME_PLAINS: return Color(0.56, 0.86, 0.38)
-		BIOME_FOREST: return Color(0.45, 0.78, 0.34)
-		BIOME_BIRCH: return Color(0.58, 0.84, 0.42)
-		BIOME_TAIGA: return Color(0.42, 0.68, 0.48)
-		BIOME_SNOWY: return Color(0.52, 0.72, 0.58)
-		BIOME_DESERT, BIOME_BADLANDS: return Color(0.76, 0.74, 0.38)
-		BIOME_SWAMP: return Color(0.42, 0.62, 0.30)
-		BIOME_MOUNTAINS: return Color(0.48, 0.74, 0.46)
-		BIOME_UMBRA: return Color(0.62, 0.48, 0.92)
-		_: return Color(0.52, 0.82, 0.40)
+		BIOME_PLAINS: return Color(0.98, 1.02, 0.95)
+		BIOME_FOREST: return Color(0.88, 0.98, 0.86)
+		BIOME_BIRCH: return Color(1.02, 1.04, 0.92)
+		BIOME_TAIGA: return Color(0.82, 0.94, 0.90)
+		BIOME_SNOWY: return Color(0.88, 0.96, 0.94)
+		BIOME_DESERT, BIOME_BADLANDS: return Color(1.10, 1.02, 0.76)
+		BIOME_SWAMP: return Color(0.76, 0.86, 0.66)
+		BIOME_MOUNTAINS: return Color(0.88, 0.96, 0.88)
+		BIOME_UMBRA: return Color(0.86, 0.76, 1.10)
+		_: return Color(0.96, 1.0, 0.94)
 
 func height_at(wx: int, wz: int) -> int:
 	if dimension == 1:

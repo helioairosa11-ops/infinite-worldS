@@ -91,7 +91,12 @@ const GLOWMOSS := 80
 const OAK_SAPLING := 81
 const BIRCH_SAPLING := 82
 const PINE_SAPLING := 83
-const COUNT := 84
+const POWER_CORE := 84
+const ENERGY_CONDUIT := 85
+const LEVER := 86
+const PISTON := 87
+const EXPLOSIVE_BARREL := 88
+const COUNT := 89
 
 # render types
 const R_NONE := 0

@@ -23,6 +23,7 @@ var b_sway: PackedByteArray       # 1 = leaves, 2 = plants
 var b_emissive: PackedByteArray
 var b_sound: PackedStringArray
 var b_tex: Array = []             # Array[PackedInt32Array(6)] texture layer per face
+var b_tex_flat: PackedInt32Array  # Flat thread-safe table: id * 6 + face
 var b_front: PackedInt32Array     # front texture layer for facing blocks (-1 none)
 var b_item: PackedStringArray     # item key obtained when picked / default drop
 
@@ -31,6 +32,7 @@ var layer_of: Dictionary = {}
 var layer_images: Array[Image] = []
 var texture_array: Texture2DArray
 var destroy_layer0: int = 0
+var wheat_layer0: int = 0
 
 # ---- items
 var items: Array = []             # id -> Dictionary
@@ -68,6 +70,7 @@ func _init_tables() -> void:
 	b_tint.resize(n); b_sway.resize(n); b_emissive.resize(n); b_sound.resize(n)
 	b_front.resize(n); b_item.resize(n)
 	b_tex.resize(n)
+	b_tex_flat.resize(n * 6)
 	for i in n:
 		b_front[i] = -1
 		b_tex[i] = PackedInt32Array([0, 0, 0, 0, 0, 0])
@@ -113,6 +116,8 @@ func _def(id: int, name: String, tex: Variant, p: Dictionary = {}) -> void:
 		if tex.has("front"):
 			b_front[id] = _layer(tex["front"])
 	b_tex[id] = t
+	for f in 6:
+		b_tex_flat[id * 6 + f] = t[f]
 
 func _define_blocks() -> void:
 	var P := B.T_PICK; var A := B.T_AXE; var S := B.T_SHOVEL
@@ -163,7 +168,8 @@ func _define_blocks() -> void:
 	_def(B.BEDROLL, "bedroll", {"top": "bedroll_top", "side": "bedroll_side", "bottom": "oak_planks"}, {"render": B.R_BOX, "solid": 1, "hard": 0.2, "sound": "wool"})
 	_def(B.FARMLAND, "farmland", {"top": "farmland", "side": "dirt", "bottom": "dirt"}, {"tool": S, "hard": 0.6, "sound": "gravel", "item": "dirt"})
 	for st in 8:
-		_layer("wheat_%d" % st)
+		var wl := _layer("wheat_%d" % st)
+		if st == 0: wheat_layer0 = wl
 	_def(B.WHEAT, "wheat_crop", "wheat_0", {"render": B.R_CROSS, "solid": 0, "opaque": 0, "hard": 0.0, "sound": "grass", "replace": 0, "sway": 2, "item": "seeds"})
 	_def(B.TALL_GRASS, "tall_grass", "tall_grass", {"render": B.R_CROSS, "hard": 0.0, "sound": "grass", "replace": 1, "tint": 1, "sway": 2, "item": ""})
 	_def(B.FLOWER_RED, "flower_red", "flower_red", {"render": B.R_CROSS, "hard": 0.0, "sound": "grass", "sway": 2})
@@ -202,6 +208,11 @@ func _define_blocks() -> void:
 	_def(B.SMOOTH_SANDSTONE, "smooth_sandstone", "smooth_sandstone", {"tool": P, "tier": 1, "hard": 0.8})
 	_def(B.COAL_BLOCK, "coal_block", "coal_block", {"tool": P, "tier": 1, "hard": 5.0, "flammable": 1})
 	_def(B.GLOWMOSS, "glowmoss", "glowmoss", {"tool": S, "hard": 0.4, "light": 6, "emissive": 1, "sound": "grass"})
+	_def(B.POWER_CORE, "power_core", "power_core", {"tool": P, "tier": 1, "hard": 2.5, "light": 12, "emissive": 1, "sound": "metal"})
+	_def(B.ENERGY_CONDUIT, "energy_conduit", "energy_conduit", {"render": B.R_BOX, "solid": 0, "hard": 0.1, "light": 7, "emissive": 1, "sound": "metal"})
+	_def(B.LEVER, "lever", "lever", {"render": B.R_BOX, "solid": 0, "hard": 0.3, "sound": "stone"})
+	_def(B.PISTON, "piston", {"top": "piston_top", "side": "piston_side", "bottom": "cobble"}, {"tool": P, "hard": 1.5, "sound": "stone"})
+	_def(B.EXPLOSIVE_BARREL, "explosive_barrel", {"top": "oak_log_top", "side": "explosive_barrel"}, {"tool": A, "hard": 0.5, "sound": "wood", "flammable": 1})
 	for i in 10:
 		var l := _layer("destroy_%d" % i)
 		if i == 0: destroy_layer0 = l
@@ -219,12 +230,12 @@ func is_opaque(id: int) -> bool: return b_opaque[id] == 1
 func is_solid(id: int) -> bool: return b_solid[id] == 1
 func is_liquid(id: int) -> bool: return id == B.WATER or id == B.LAVA
 func is_replaceable(id: int) -> bool: return b_replaceable[id] == 1
-func wheat_layer(stage: int) -> int: return layer_of["wheat_%d" % clampi(stage, 0, 7)]
+func wheat_layer(stage: int) -> int: return wheat_layer0 + clampi(stage, 0, 7)
 
 ## Collision boxes in block-local coordinates. Empty array = no collision.
 func collision_boxes(id: int, meta: int) -> Array:
 	match id:
-		B.AIR, B.WATER, B.LAVA, B.TORCH, B.LADDER, B.FIRE:
+		B.AIR, B.WATER, B.LAVA, B.TORCH, B.LADDER, B.FIRE, B.ENERGY_CONDUIT, B.LEVER:
 			return []
 		B.DOOR_LOWER, B.DOOR_UPPER:
 			return [door_box(meta)]
@@ -242,13 +253,17 @@ func render_box(id: int, meta: int) -> AABB:
 		B.TORCH:
 			var f := meta & 7
 			if f < 4:
-				var d: Vector3i = FACING_DIRS[f]
+				var d := Vector3.ZERO
+				match f:
+					0: d = Vector3(0, 0, 1)
+					1: d = Vector3(-1, 0, 0)
+					2: d = Vector3(0, 0, -1)
+					3: d = Vector3(1, 0, 0)
 				# attached to the wall opposite to "d"
-				var c := Vector3(0.5, 0.2, 0.5) - Vector3(d) * 0.38
+				var c := Vector3(0.5, 0.2, 0.5) - d * 0.38
 				return AABB(c - Vector3(0.0625, 0, 0.0625), Vector3(0.125, 0.625, 0.125))
 			return AABB(Vector3(0.4375, 0, 0.4375), Vector3(0.125, 0.625, 0.125))
 		B.LADDER:
-			var dd: Vector3i = FACING_DIRS[meta & 3]
 			# ladder hugs the wall on the side opposite to facing
 			var t := 0.0625
 			match meta & 3:
@@ -260,6 +275,11 @@ func render_box(id: int, meta: int) -> AABB:
 			return door_box(meta)
 		B.BEDROLL:
 			return AABB(Vector3(0, 0, 0), Vector3(1, 0.4, 1))
+		B.ENERGY_CONDUIT:
+			return AABB(Vector3(0.18, 0, 0.18), Vector3(0.64, 0.08, 0.64))
+		B.LEVER:
+			var on := (meta & 4) != 0
+			return AABB(Vector3(0.32, 0, 0.32), Vector3(0.36, 0.55 if on else 0.38, 0.36))
 		B.CACTUS:
 			return AABB(Vector3(0.0625, 0, 0.0625), Vector3(0.875, 1, 0.875))
 	return AABB(Vector3.ZERO, Vector3.ONE)
@@ -427,6 +447,11 @@ func _define_recipes() -> void:
 	_shapeless("diamond", 9, ["diamond_block"])
 	_shapeless("coal", 9, ["coal_block"])
 	_shaped("crystal_lamp", 1, ["PSP", "SLS", "PSP"], {"P": "#planks", "S": "stick", "L": "luminite_shard"})
+	_shaped("power_core", 1, ["ILI", "LCL", "ILI"], {"I": "iron_ingot", "L": "luminite_shard", "C": "#stone"})
+	_shaped("energy_conduit", 6, ["ILI"], {"I": "iron_ingot", "L": "luminite_shard"})
+	_shaped("lever", 1, ["S", "C"], {"S": "stick", "C": "#stone"})
+	_shaped("piston", 1, ["PPP", "CIC", "CLC"], {"P": "#planks", "C": "#stone", "I": "iron_ingot", "L": "luminite_shard"})
+	_shaped("explosive_barrel", 1, ["PEP", "EPE", "PEP"], {"P": "#planks", "E": "ember_dust"})
 	_shaped("bowl", 4, ["P P", " P "], {"P": "#planks"})
 	_shapeless("mushroom_stew", 1, ["bowl", "mushroom", "mushroom"])
 	_shaped("bread", 1, ["WWW"], {"W": "wheat"})

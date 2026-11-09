@@ -196,7 +196,7 @@ func _build_main_menu() -> void:
 	add_child(main_menu_root)
 
 	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.11, 0.17, 0.86)
+	bg.color = Color(0.05, 0.08, 0.14, 0.38)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	main_menu_root.add_child(bg)
 
@@ -568,13 +568,19 @@ func _build_hud() -> void:
 	ch_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_root.add_child(ch_v)
 
-	# Bottom Hotbar + Survival Bars
+	# Bottom Hotbar + Survival Bars (centered across full width)
+	var bot_wrap := CenterContainer.new()
+	bot_wrap.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	bot_wrap.offset_top = -138
+	bot_wrap.offset_bottom = -12
+	bot_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_root.add_child(bot_wrap)
+
 	var bot_center := VBoxContainer.new()
-	bot_center.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 12)
 	bot_center.alignment = BoxContainer.ALIGNMENT_END
 	bot_center.add_theme_constant_override("separation", 6)
 	bot_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_root.add_child(bot_center)
+	bot_wrap.add_child(bot_center)
 
 	held_name_label = Label.new()
 	held_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -647,15 +653,19 @@ func _build_hud() -> void:
 		)
 		hotbar_slots.append(sb)
 		hbar.add_child(sb)
-	bot_center.position.x -= 260
 
 	# Top-Center Boss Bar & Region Discovery Banner
+	var top_wrap := CenterContainer.new()
+	top_wrap.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_wrap.offset_top = 16
+	top_wrap.offset_bottom = 96
+	top_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_root.add_child(top_wrap)
+
 	var top_center := VBoxContainer.new()
-	top_center.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 18)
-	top_center.position.x -= 180
 	top_center.custom_minimum_size = Vector2(360, 0)
 	top_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_root.add_child(top_center)
+	top_wrap.add_child(top_center)
 
 	boss_bar_box = VBoxContainer.new()
 	boss_bar_box.visible = false
@@ -1333,6 +1343,20 @@ func _on_chest_slot_clicked(ch_idx: int, right_click: bool) -> void:
 func _populate_recipe_book(allow_3x3: bool) -> void:
 	for c in recipe_list_vbox.get_children():
 		c.queue_free()
+	if world != null and world.local_player != null and world.local_player.game_mode == 1:
+		for d in Registry.items:
+			if d == null:
+				continue
+			var iid: int = d["id"]
+			var cbtn := _make_btn(Registry.item_name(iid), Vector2(210, 34))
+			cbtn.icon = Registry.icon(iid)
+			cbtn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			cbtn.pressed.connect(func() -> void:
+				world.local_player.add_item(iid, Registry.max_stack(iid))
+				_refresh_inventory_modal()
+			)
+			recipe_list_vbox.add_child(cbtn)
+		return
 	for r in Registry.recipes:
 		if not allow_3x3 and r.has("pattern"):
 			var pat: Array = r["pattern"]

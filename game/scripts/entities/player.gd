@@ -67,6 +67,9 @@ var head_pivot: Node3D
 var cam: Camera3D
 var hand_pivot: Node3D
 var hand_sprite: Sprite3D
+var hand_block_mesh: MeshInstance3D
+var hand_block_mat: StandardMaterial3D
+var hand_arm_mesh: MeshInstance3D
 var body_mesh: Node3D
 var select_box: MeshInstance3D
 var crack_box: MeshInstance3D
@@ -102,12 +105,35 @@ func _build_nodes() -> void:
 	cam.add_child(hand_pivot)
 
 	hand_sprite = Sprite3D.new()
-	hand_sprite.pixel_size = 0.012
+	hand_sprite.pixel_size = 0.015
 	hand_sprite.shaded = true
 	hand_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 	hand_sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	hand_sprite.rotation_degrees = Vector3(10, -28, 8)
+	hand_sprite.rotation_degrees = Vector3(8, -32, 12)
 	hand_pivot.add_child(hand_sprite)
+
+	hand_block_mesh = MeshInstance3D.new()
+	var hbm := BoxMesh.new()
+	hbm.size = Vector3(0.28, 0.28, 0.28)
+	hand_block_mat = StandardMaterial3D.new()
+	hand_block_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	hand_block_mat.roughness = 0.9
+	hbm.material = hand_block_mat
+	hand_block_mesh.mesh = hbm
+	hand_block_mesh.rotation_degrees = Vector3(12, 38, -6)
+	hand_pivot.add_child(hand_block_mesh)
+
+	hand_arm_mesh = MeshInstance3D.new()
+	var arm_bm := BoxMesh.new()
+	arm_bm.size = Vector3(0.14, 0.14, 0.42)
+	var arm_mat := StandardMaterial3D.new()
+	arm_mat.albedo_color = Color("#dfb18b")
+	arm_mat.roughness = 0.85
+	arm_bm.material = arm_mat
+	hand_arm_mesh.mesh = arm_bm
+	hand_arm_mesh.position = Vector3(0.06, -0.06, 0.10)
+	hand_arm_mesh.rotation_degrees = Vector3(18, -14, 0)
+	hand_pivot.add_child(hand_arm_mesh)
 
 	# Third-person / multiplayer character model
 	body_mesh = _build_character_model()
@@ -207,7 +233,22 @@ func _refresh_hand_visual() -> void:
 	if hand_sprite == null:
 		return
 	var id := held_item_id()
-	hand_sprite.texture = Registry.icon(id) if id > 0 else null
+	if id <= 0:
+		hand_sprite.visible = false
+		hand_block_mesh.visible = false
+		hand_arm_mesh.visible = true
+	elif id < B.COUNT and Registry.b_render[id] in [B.R_CUBE, B.R_CUTOUT]:
+		hand_sprite.visible = false
+		hand_arm_mesh.visible = false
+		hand_block_mesh.visible = true
+		var front_l: int = Registry.b_front[id] if Registry.b_front[id] >= 0 else Registry.b_tex[id][4]
+		hand_block_mat.albedo_texture = ImageTexture.create_from_image(Registry.layer_images[front_l])
+	else:
+		hand_arm_mesh.visible = false
+		hand_block_mesh.visible = false
+		hand_sprite.visible = true
+		var flat_img: Image = Registry.icon_images.get(id)
+		hand_sprite.texture = ImageTexture.create_from_image(flat_img) if flat_img != null else Registry.icon(id)
 
 func add_item(id: int, count: int, dur: int = -1) -> int:
 	if id <= 0 or count <= 0:
@@ -659,6 +700,16 @@ func _use_action() -> void:
 				return
 			elif target_blk in [B.DOOR_LOWER, B.DOOR_UPPER]:
 				world.toggle_door(bp)
+				swing_anim = 1.0
+				return
+			elif target_blk == B.LEVER:
+				world.toggle_lever(bp)
+				swing_anim = 1.0
+				return
+			elif target_blk == B.EXPLOSIVE_BARREL and it.get("kind", "") == "striker":
+				world.set_block(bp.x, bp.y, bp.z, B.AIR)
+				world.explode(Vector3(bp) + Vector3(0.5, 0.5, 0.5), 4.0, 18.0)
+				damage_held_item(1)
 				swing_anim = 1.0
 				return
 			elif target_blk == B.BEDROLL:

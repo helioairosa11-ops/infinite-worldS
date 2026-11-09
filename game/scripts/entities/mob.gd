@@ -99,7 +99,7 @@ func _build_model() -> void:
 			if mob_type == "sheep":
 				coat_node = _part(body_node, body_sz * 1.12, Vector3.ZERO, Color("#f4f6f6"))
 			elif mob_type == "cow":
-				_part(body_node, Vector3(0.70, 0.28, 0.35), Vector3(0, 0.08, 0.1), Color("#e8e4dc"))
+				_part(body_node, Vector3(0.685, 0.30, 0.38), Vector3(0, 0.08, 0.08), Color("#e8e4dc"))
 			head_node = _part(rig, Vector3(0.44, 0.42, 0.44), Vector3(0, leg_h + body_sz.y * 0.78, -body_sz.z * 0.58), head_col)
 			# Eyes & features
 			_part(head_node, Vector3(0.08, 0.08, 0.05), Vector3(-0.14, 0.05, -0.22), Color("#18181c"))
