@@ -1,0 +1,12 @@
+# Godot 4+ cache and local saves
+game/.godot/
+game/saves/
+*.import
+
+# Local engine binaries (>100MB, excluded from git)
+tools/
+appdata/
+
+# OS files
+.DS_Store
+Thumbs.db
